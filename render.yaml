@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: udp-ddos-tester-bot
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python script.py
+    envVars:
+      - key: BOT_TOKEN
+        value: 8266888318:AAGCcn95Hj0flaypDcyEEM0KjLfPPC2FPvw
+      - key: ADMIN_USER_ID
+        value: 6300435094

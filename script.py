@@ -32,10 +32,10 @@ class UDPDDoSTester:
         self.attack_logs = []
         self.admin_user_id = ADMIN_USER_ID  # Admin user ID
         self.load_authorized_users()
-        # Add admin to authorized users if not already present
-        if self.admin_user_id not in self.authorized_users:
-            self.authorized_users.add(self.admin_user_id)
-            self.save_authorized_users()
+        # Always add admin to authorized users
+        self.authorized_users.add(self.admin_user_id)
+        self.save_authorized_users()
+        logger.info(f"Admin user {self.admin_user_id} added to authorized users")
         
     def load_authorized_users(self):
         """Load authorized users from file"""
@@ -453,6 +453,43 @@ async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(message, parse_mode='Markdown')
 
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /debug command for troubleshooting"""
+    user_id = update.effective_user.id
+    
+    # Show debug info
+    message = f"🔍 **Debug Information**\n\n"
+    message += f"🆔 Your User ID: `{user_id}`\n"
+    message += f"👑 Admin ID: `{ddos_tester.admin_user_id}`\n"
+    message += f"✅ Is Admin: `{user_id == ddos_tester.admin_user_id}`\n"
+    message += f"✅ Is Authorized: `{user_id in ddos_tester.authorized_users}`\n"
+    message += f"👥 Total Authorized: `{len(ddos_tester.authorized_users)}`\n\n"
+    message += f"**Authorized Users:**\n"
+    
+    for user in sorted(ddos_tester.authorized_users):
+        if user == ddos_tester.admin_user_id:
+            message += f"👑 `{user}` (Admin)\n"
+        else:
+            message += f"👤 `{user}`\n"
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+
+async def force_add_admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /forceaddadmin command to manually add admin"""
+    user_id = update.effective_user.id
+    
+    # Force add admin to authorized users
+    ddos_tester.authorized_users.add(ddos_tester.admin_user_id)
+    ddos_tester.save_authorized_users()
+    
+    message = f"✅ **Admin Force Added**\n\n"
+    message += f"🆔 Admin ID: `{ddos_tester.admin_user_id}`\n"
+    message += f"👥 Total Authorized: `{len(ddos_tester.authorized_users)}`\n"
+    message += f"✅ Admin is now authorized!"
+    
+    await update.message.reply_text(message, parse_mode='Markdown')
+    logger.info(f"Admin {ddos_tester.admin_user_id} force added by user {user_id}")
+
 async def stop_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /stop command"""
     user_id = update.effective_user.id
@@ -527,6 +564,8 @@ def main():
     application.add_handler(CommandHandler("add", add_user_command))
     application.add_handler(CommandHandler("approve", approve_command))
     application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CommandHandler("debug", debug_command))
+    application.add_handler(CommandHandler("forceaddadmin", force_add_admin_command))
     
     # Add button callback handler
     application.add_handler(MessageHandler(filters.Regex("^/"), start))
